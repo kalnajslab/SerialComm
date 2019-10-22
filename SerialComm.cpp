@@ -53,6 +53,7 @@ SerialMessage_t SerialComm::RX()
     char rx_char = '\0';
 
     while (timeout > millis() && -1 != (rx_char = serial_stream->read())) {
+        Serial.write(rx_char);
         switch (rx_char) {
         case ASCII_DELIMITER:
             if (Read_ASCII(timeout)) {
@@ -189,6 +190,8 @@ bool SerialComm::Read_Bin(uint32_t timeout)
     // ensure rx message struct is reset
     binary_rx.bin_length = 0;
     binary_rx.bin_id = 0;
+    binary_rx.checksum_read = 0;
+    binary_rx.checksum_calc = 0;
 
     // ensure the destination buffer is valid
     if (binary_rx.bin_buffer == NULL) return false;
@@ -250,6 +253,32 @@ bool SerialComm::Read_Bin(uint32_t timeout)
         return false;
     }
 
+    // read the checksum
+    temp = 0;
+    while (timeout > millis() && temp < 5) {
+        // check for delimiters
+        rx_char = serial_stream->peek();
+        if (rx_char == ';') break;
+
+        // add to the id buffer
+        length_buffer[temp++] = serial_stream->read();
+    }
+
+    // if timed out, flush the buffer and return error
+    if (timeout <= millis()) {
+        serial_stream->flush();
+        return false;
+    }
+
+    // if the next char isn't a semicolon, there's been an error
+    rx_char = serial_stream->read();
+    if (rx_char != ';') return false;
+
+    // convert the checksum
+    if (1 != sscanf(length_buffer, "%u", &temp)) return false;
+    if (temp > 65535) return false;
+    binary_rx.checksum_read = (uint16_t) temp;
+
     // read the binary section
     temp = 0;
     while (timeout > millis() && temp < binary_rx.bin_length) {
@@ -265,6 +294,10 @@ bool SerialComm::Read_Bin(uint32_t timeout)
     // if the next char isn't a semicolon, there's been an error
     rx_char = serial_stream->read();
     if (rx_char != ';') return false;
+
+    //calulate the checksum and return false if they don' agree
+    binary_rx.checksum_calc = calcChecksum(binary_rx.bin_buffer,binary_rx.bin_length);
+    if (binary_rx.checksum_calc != binary_rx.checksum_read) return false;
 
     return true;
 }
@@ -304,12 +337,17 @@ bool SerialComm::TX_Bin()
 bool SerialComm::TX_Bin(uint8_t bin_id)
 {
     if (binary_tx.bin_buffer == NULL) return false;
-
+    //Calculate checksum
+    binary_tx.checksum_calc = calcChecksum(binary_tx.bin_buffer, binary_tx.bin_length);
+    
     serial_stream->print(BIN_DELIMITER);
     serial_stream->print(bin_id);
     serial_stream->print(",");
     serial_stream->print(binary_tx.bin_length);
     serial_stream->print(";");
+    serial_stream->print(binary_tx.checksum_calc);
+    serial_stream->print(";");
+
     for (int i = 0; i < binary_tx.bin_length; i++) {
         serial_stream->write(binary_tx.bin_buffer[i]);
     }
@@ -634,4 +672,17 @@ bool SerialComm::Add_string(const char * buffer)
     ascii_tx.buffer_index += num_written;
 
     return true;
+}
+
+uint16_t SerialComm::calcChecksum(uint8_t * checksumPayload, uint16_t payloadSize)
+{
+    uint8_t CK_A = 0, CK_B = 0;
+    uint16_t checkSum = 0; 
+    for (int i = 0; i < payloadSize ;i++) {
+        CK_A = CK_A + *checksumPayload;
+        CK_B = CK_B + CK_A;
+        checksumPayload++;
+    }
+    checkSum = (uint16_t)(CK_A * 256 + CK_B);
+    return checkSum;
 }

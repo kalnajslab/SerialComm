@@ -42,6 +42,8 @@ struct BIN_MSG_t {
     uint8_t bin_id;
     uint16_t bin_length;
     uint16_t buffer_size;
+    uint16_t checksum_read;
+    uint16_t checksum_calc;
     uint8_t * bin_buffer;
 };
 
@@ -108,6 +110,9 @@ private:
     // reset RX/TX internal state
     void ResetRX();
     void ResetTX();
+
+    //calculate a 16 bit checksum for a given buffer
+    uint16_t calcChecksum(uint8_t *, uint16_t);
 
     // Serial port
     Stream * serial_stream;
