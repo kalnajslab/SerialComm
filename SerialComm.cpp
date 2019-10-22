@@ -253,6 +253,24 @@ bool SerialComm::Read_Bin(uint32_t timeout)
         return false;
     }
 
+
+
+    // read the binary section
+    temp = 0;
+    while (timeout > millis() && temp < binary_rx.bin_length) {
+        binary_rx.bin_buffer[temp++] = serial_stream->read();
+    }
+
+    // if timed out, flush the buffer and return error
+    if (timeout <= millis()) {
+        serial_stream->flush();
+        return false;
+    }
+
+    // if the next char isn't a semicolon, there's been an error
+    rx_char = serial_stream->read();
+    if (rx_char != ';') return false;
+
     // read the checksum
     temp = 0;
     while (timeout > millis() && temp < 5) {
@@ -278,22 +296,6 @@ bool SerialComm::Read_Bin(uint32_t timeout)
     if (1 != sscanf(length_buffer, "%u", &temp)) return false;
     if (temp > 65535) return false;
     binary_rx.checksum_read = (uint16_t) temp;
-
-    // read the binary section
-    temp = 0;
-    while (timeout > millis() && temp < binary_rx.bin_length) {
-        binary_rx.bin_buffer[temp++] = serial_stream->read();
-    }
-
-    // if timed out, flush the buffer and return error
-    if (timeout <= millis()) {
-        serial_stream->flush();
-        return false;
-    }
-
-    // if the next char isn't a semicolon, there's been an error
-    rx_char = serial_stream->read();
-    if (rx_char != ';') return false;
 
     //calulate the checksum and return false if they don' agree
     binary_rx.checksum_calc = calcChecksum(binary_rx.bin_buffer,binary_rx.bin_length);
@@ -345,13 +347,14 @@ bool SerialComm::TX_Bin(uint8_t bin_id)
     serial_stream->print(",");
     serial_stream->print(binary_tx.bin_length);
     serial_stream->print(";");
-    serial_stream->print(binary_tx.checksum_calc);
-    serial_stream->print(";");
-
+    
     for (int i = 0; i < binary_tx.bin_length; i++) {
         serial_stream->write(binary_tx.bin_buffer[i]);
     }
     serial_stream->println(";");
+    //Add the checksum at the end
+    serial_stream->print(binary_tx.checksum_calc);
+    serial_stream->print(";");
 
     return true;
 }
